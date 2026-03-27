@@ -4,3 +4,25 @@
 # Large local artifacts
 palaubud/
 poster.HEIC
+
+# OpenClaw runtime and sensitive state
+agents/
+browser/
+canvas/
+completions/
+credentials/
+devices/
+identity/
+logs/
+media
+memory/
+update-check.json
+openclaw.json
+openclaw.json.bak*
+openclaw.json.pre-*.bak
+workspace-backup-pre-3agents/
+
+# Nested local metadata inside synced workspaces
+**/.git/
+**/.openclaw/
+**/*.bak
