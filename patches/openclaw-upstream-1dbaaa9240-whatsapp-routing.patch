@@ -1,0 +1,457 @@
+From 1dbaaa9240a18cdaf53d32b0820a3b578442674e Mon Sep 17 00:00:00 2001
+From: azlangaiada <azlan@gaiada.com>
+Date: Fri, 27 Mar 2026 17:06:02 +0800
+Subject: [PATCH] Port WhatsApp agent routing and prefix policy to source
+
+---
+ .../src/auto-reply/monitor/broadcast.ts       |   2 +-
+ .../src/auto-reply/monitor/on-message.ts      |  17 +-
+ .../auto-reply/monitor/routing-policy.test.ts | 182 ++++++++++++++++++
+ .../src/auto-reply/monitor/routing-policy.ts  |  79 ++++++++
+ src/channels/reply-prefix.ts                  |  25 ++-
+ src/channels/reply-prefix.whatsapp.test.ts    |  60 ++++++
+ 6 files changed, 358 insertions(+), 7 deletions(-)
+ create mode 100644 extensions/whatsapp/src/auto-reply/monitor/routing-policy.test.ts
+ create mode 100644 extensions/whatsapp/src/auto-reply/monitor/routing-policy.ts
+ create mode 100644 src/channels/reply-prefix.whatsapp.test.ts
+
+diff --git a/extensions/whatsapp/src/auto-reply/monitor/broadcast.ts b/extensions/whatsapp/src/auto-reply/monitor/broadcast.ts
+index b2dc74cffe..483f049114 100644
+--- a/extensions/whatsapp/src/auto-reply/monitor/broadcast.ts
++++ b/extensions/whatsapp/src/auto-reply/monitor/broadcast.ts
+@@ -11,7 +11,7 @@ import { whatsappInboundLog } from "../loggers.js";
+ import type { WebInboundMsg } from "../types.js";
+ import type { GroupHistoryEntry } from "./process-message.js";
+ 
+-function buildBroadcastRouteKeys(params: {
++export function buildBroadcastRouteKeys(params: {
+   cfg: ReturnType<typeof loadConfig>;
+   msg: WebInboundMsg;
+   route: ReturnType<typeof resolveAgentRoute>;
+diff --git a/extensions/whatsapp/src/auto-reply/monitor/on-message.ts b/extensions/whatsapp/src/auto-reply/monitor/on-message.ts
+index 3cb0595df0..12fbe29d06 100644
+--- a/extensions/whatsapp/src/auto-reply/monitor/on-message.ts
++++ b/extensions/whatsapp/src/auto-reply/monitor/on-message.ts
+@@ -15,6 +15,7 @@ import { applyGroupGating } from "./group-gating.js";
+ import { updateLastRouteInBackground } from "./last-route.js";
+ import { resolvePeerId } from "./peer.js";
+ import { processMessage } from "./process-message.js";
++import { applyWhatsAppRoutingPolicy } from "./routing-policy.js";
+ 
+ export function createWebOnMessageHandler(params: {
+   cfg: ReturnType<typeof loadConfig>;
+@@ -65,8 +66,9 @@ export function createWebOnMessageHandler(params: {
+     const conversationId = msg.conversationId ?? msg.from;
+     const peerId = resolvePeerId(msg);
+     // Fresh config for bindings lookup; other routing inputs are payload-derived.
+-    const route = resolveAgentRoute({
+-      cfg: loadConfig(),
++    const cfg = loadConfig();
++    const resolvedRoute = resolveAgentRoute({
++      cfg,
+       channel: "whatsapp",
+       accountId: msg.accountId,
+       peer: {
+@@ -74,6 +76,17 @@ export function createWebOnMessageHandler(params: {
+         id: peerId,
+       },
+     });
++    const route = applyWhatsAppRoutingPolicy({
++      cfg,
++      msg,
++      route: resolvedRoute,
++      peerId,
++      authDir: params.account.authDir,
++      logVerbose,
++    });
++    if (!route) {
++      return;
++    }
+     const groupHistoryKey =
+       msg.chatType === "group"
+         ? buildGroupHistoryKey({
+diff --git a/extensions/whatsapp/src/auto-reply/monitor/routing-policy.test.ts b/extensions/whatsapp/src/auto-reply/monitor/routing-policy.test.ts
+new file mode 100644
+index 0000000000..ff4c829a70
+--- /dev/null
++++ b/extensions/whatsapp/src/auto-reply/monitor/routing-policy.test.ts
+@@ -0,0 +1,182 @@
++import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
++import { describe, expect, it } from "vitest";
++import type { OpenClawConfig } from "../../../../../src/config/config.js";
++import { applyWhatsAppRoutingPolicy } from "./routing-policy.js";
++
++function makeConfig(): OpenClawConfig {
++  return {
++    acp: { defaultAgent: "main" },
++    channels: {
++      whatsapp: {
++        allowFrom: ["*"],
++      },
++    },
++    agents: {
++      list: [
++        {
++          id: "main",
++          identity: { name: "Michael" },
++          groupChat: { mentionPatterns: ["Michael", "@Michael", "michael"] },
++        },
++        {
++          id: "bsc",
++          identity: { name: "Brian" },
++          groupChat: { mentionPatterns: ["Brian", "@Brian", "brian"] },
++        },
++        {
++          id: "zen",
++          identity: { name: "Zack" },
++          groupChat: { mentionPatterns: ["Zack", "@Zack", "zack"] },
++        },
++      ],
++    },
++  };
++}
++
++function buildRoute(
++  cfg: OpenClawConfig,
++  msg: { chatType: "direct" | "group"; accountId?: string; from: string },
++) {
++  return resolveAgentRoute({
++    cfg,
++    channel: "whatsapp",
++    accountId: msg.accountId,
++    peer: {
++      kind: msg.chatType === "group" ? "group" : "direct",
++      id: msg.from,
++    },
++  });
++}
++
++function buildMessage(
++  overrides: Partial<Parameters<typeof applyWhatsAppRoutingPolicy>[0]["msg"]> = {},
++) {
++  return {
++    id: "m1",
++    from: "+15550001111",
++    conversationId: "+15550001111",
++    chatId: "direct:+15550001111",
++    chatType: "direct" as const,
++    to: "+2000",
++    body: "Michael what is your name",
++    accountId: "default",
++    senderE164: "+15550001111",
++    senderName: "Tester",
++    selfE164: "+2000",
++    sendComposing: async () => {},
++    reply: async () => {},
++    sendMedia: async () => {},
++    ...overrides,
++  };
++}
++
++describe("applyWhatsAppRoutingPolicy", () => {
++  it("routes owner DMs to the explicitly named agent", () => {
++    const cfg = makeConfig();
++    const msg = buildMessage({
++      body: "Brian what is your name",
++      senderE164: "+628176917122",
++      from: "+628176917122",
++      conversationId: "+628176917122",
++      chatId: "direct:+628176917122",
++    });
++
++    const route = applyWhatsAppRoutingPolicy({
++      cfg,
++      msg,
++      route: buildRoute(cfg, msg),
++      peerId: msg.from,
++    });
++
++    expect(route?.agentId).toBe("bsc");
++  });
++
++  it("allows non-owner DMs only when Michael is mentioned", () => {
++    const cfg = makeConfig();
++    const michaelMsg = buildMessage({
++      body: "Michael status",
++      senderE164: "+15550001111",
++    });
++    const michaelRoute = applyWhatsAppRoutingPolicy({
++      cfg,
++      msg: michaelMsg,
++      route: buildRoute(cfg, michaelMsg),
++      peerId: michaelMsg.from,
++    });
++    expect(michaelRoute?.agentId).toBe("main");
++
++    const brianMsg = buildMessage({
++      body: "Brian status",
++      senderE164: "+15550001111",
++    });
++    const blockedRoute = applyWhatsAppRoutingPolicy({
++      cfg,
++      msg: brianMsg,
++      route: buildRoute(cfg, brianMsg),
++      peerId: brianMsg.from,
++    });
++    expect(blockedRoute).toBeNull();
++  });
++
++  it("blocks direct messages with no allowed named agent", () => {
++    const cfg = makeConfig();
++    const msg = buildMessage({
++      body: "what is your name",
++      senderE164: "+628176917122",
++      from: "+628176917122",
++      conversationId: "+628176917122",
++      chatId: "direct:+628176917122",
++    });
++
++    const route = applyWhatsAppRoutingPolicy({
++      cfg,
++      msg,
++      route: buildRoute(cfg, msg),
++      peerId: msg.from,
++    });
++
++    expect(route).toBeNull();
++  });
++
++  it("routes group messages only when Brian is mentioned", () => {
++    const cfg = makeConfig();
++    const msg = buildMessage({
++      from: "120363407581810735@g.us",
++      conversationId: "120363407581810735@g.us",
++      chatId: "120363407581810735@g.us",
++      chatType: "group",
++      body: "Brian what is your name",
++      senderE164: "+15550001111",
++    });
++
++    const route = applyWhatsAppRoutingPolicy({
++      cfg,
++      msg,
++      route: buildRoute(cfg, msg),
++      peerId: msg.from,
++    });
++
++    expect(route?.agentId).toBe("bsc");
++  });
++
++  it("blocks group messages when Brian is not mentioned", () => {
++    const cfg = makeConfig();
++    const msg = buildMessage({
++      from: "120363407581810735@g.us",
++      conversationId: "120363407581810735@g.us",
++      chatId: "120363407581810735@g.us",
++      chatType: "group",
++      body: "Michael what is your name",
++      senderE164: "+15550001111",
++    });
++
++    const route = applyWhatsAppRoutingPolicy({
++      cfg,
++      msg,
++      route: buildRoute(cfg, msg),
++      peerId: msg.from,
++    });
++
++    expect(route).toBeNull();
++  });
++});
+diff --git a/extensions/whatsapp/src/auto-reply/monitor/routing-policy.ts b/extensions/whatsapp/src/auto-reply/monitor/routing-policy.ts
+new file mode 100644
+index 0000000000..63c09f95a2
+--- /dev/null
++++ b/extensions/whatsapp/src/auto-reply/monitor/routing-policy.ts
+@@ -0,0 +1,79 @@
++import type { loadConfig } from "openclaw/plugin-sdk/config-runtime";
++import type { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
++import { normalizeE164 } from "openclaw/plugin-sdk/text-runtime";
++import {
++  buildMentionConfig,
++  isBotMentionedFromTargets,
++  resolveMentionTargets,
++} from "../mentions.js";
++import type { WebInboundMsg } from "../types.js";
++import { buildBroadcastRouteKeys } from "./broadcast.js";
++
++const OWNER_E164 = normalizeE164("+628176917122");
++const OWNER_DM_AGENT_IDS = ["main", "bsc", "zen"] as const;
++const GROUP_ONLY_AGENT_ID = "bsc";
++
++export function applyWhatsAppRoutingPolicy(params: {
++  cfg: ReturnType<typeof loadConfig>;
++  msg: WebInboundMsg;
++  route: ReturnType<typeof resolveAgentRoute>;
++  peerId: string;
++  authDir?: string;
++  logVerbose?: (message: string) => void;
++}) {
++  const mentionTargets = resolveMentionTargets(params.msg, params.authDir);
++  const wasMentionedForAgent = (agentId: string) =>
++    isBotMentionedFromTargets(params.msg, buildMentionConfig(params.cfg, agentId), mentionTargets);
++  const overrideRouteForAgent = (agentId: string) => {
++    const routeKeys = buildBroadcastRouteKeys({
++      cfg: params.cfg,
++      msg: params.msg,
++      route: params.route,
++      peerId: params.peerId,
++      agentId,
++    });
++    return {
++      ...params.route,
++      agentId,
++      ...routeKeys,
++    };
++  };
++
++  if (params.msg.chatType === "group") {
++    if (!wasMentionedForAgent(GROUP_ONLY_AGENT_ID)) {
++      params.logVerbose?.(
++        `Skipping WhatsApp group message without Brian mention in ${params.msg.conversationId ?? params.msg.from}`,
++      );
++      return null;
++    }
++    return params.route.agentId === GROUP_ONLY_AGENT_ID
++      ? params.route
++      : overrideRouteForAgent(GROUP_ONLY_AGENT_ID);
++  }
++
++  const senderE164 = normalizeE164(params.msg.senderE164 ?? params.msg.from ?? "");
++  const isOwnerDm = Boolean(senderE164 && OWNER_E164 && senderE164 === OWNER_E164);
++  let targetAgentId: string | null = null;
++
++  if (isOwnerDm) {
++    for (const agentId of OWNER_DM_AGENT_IDS) {
++      if (wasMentionedForAgent(agentId)) {
++        targetAgentId = agentId;
++        break;
++      }
++    }
++  } else if (wasMentionedForAgent("main")) {
++    targetAgentId = "main";
++  }
++
++  if (!targetAgentId) {
++    params.logVerbose?.(
++      `Skipping WhatsApp direct message without allowed named agent from ${senderE164 ?? params.msg.from}`,
++    );
++    return null;
++  }
++
++  return targetAgentId === params.route.agentId
++    ? params.route
++    : overrideRouteForAgent(targetAgentId);
++}
+diff --git a/src/channels/reply-prefix.ts b/src/channels/reply-prefix.ts
+index cfda423eeb..c90dc9be78 100644
+--- a/src/channels/reply-prefix.ts
++++ b/src/channels/reply-prefix.ts
+@@ -25,6 +25,21 @@ export type ReplyPrefixOptions = Pick<
+   | "onModelSelected"
+ >;
+ 
++function resolveForcedWhatsAppIdentityPrefix(params: {
++  cfg: OpenClawConfig;
++  agentId: string;
++  channel?: string;
++}) {
++  if (params.channel !== "whatsapp") {
++    return undefined;
++  }
++  const identityName = resolveIdentityName(params.cfg, params.agentId)?.trim();
++  if (!identityName) {
++    return undefined;
++  }
++  return `${identityName} ♾️`;
++}
++
+ export function createReplyPrefixContext(params: {
+   cfg: OpenClawConfig;
+   agentId: string;
+@@ -46,10 +61,12 @@ export function createReplyPrefixContext(params: {
+ 
+   return {
+     prefixContext,
+-    responsePrefix: resolveEffectiveMessagesConfig(cfg, agentId, {
+-      channel: params.channel,
+-      accountId: params.accountId,
+-    }).responsePrefix,
++    responsePrefix:
++      resolveForcedWhatsAppIdentityPrefix({ cfg, agentId, channel: params.channel }) ??
++      resolveEffectiveMessagesConfig(cfg, agentId, {
++        channel: params.channel,
++        accountId: params.accountId,
++      }).responsePrefix,
+     enableSlackInteractiveReplies: params.channel
+       ? (getChannelPlugin(params.channel)?.messaging?.enableInteractiveReplies?.({
+           cfg,
+diff --git a/src/channels/reply-prefix.whatsapp.test.ts b/src/channels/reply-prefix.whatsapp.test.ts
+new file mode 100644
+index 0000000000..0be6fe7761
+--- /dev/null
++++ b/src/channels/reply-prefix.whatsapp.test.ts
+@@ -0,0 +1,60 @@
++import { describe, expect, it } from "vitest";
++import type { OpenClawConfig } from "../config/config.js";
++import { createReplyPrefixContext } from "./reply-prefix.js";
++
++describe("createReplyPrefixContext whatsapp overrides", () => {
++  it("uses identity-based prefixes for WhatsApp replies", () => {
++    const cfg: OpenClawConfig = {
++      agents: {
++        list: [{ id: "main", identity: { name: "Michael" } }],
++      },
++    };
++
++    const result = createReplyPrefixContext({
++      cfg,
++      agentId: "main",
++      channel: "whatsapp",
++      accountId: "default",
++    });
++
++    expect(result.responsePrefix).toBe("Michael ♾️");
++  });
++
++  it("does not force the WhatsApp identity prefix on other channels", () => {
++    const cfg: OpenClawConfig = {
++      agents: {
++        list: [{ id: "main", identity: { name: "Michael" } }],
++      },
++    };
++
++    const result = createReplyPrefixContext({
++      cfg,
++      agentId: "main",
++      channel: "telegram",
++    });
++
++    expect(result.responsePrefix).toBeUndefined();
++  });
++
++  it("prefers the WhatsApp identity prefix over configured channel prefixes", () => {
++    const cfg: OpenClawConfig = {
++      agents: {
++        list: [{ id: "main", identity: { name: "Michael" } }],
++      },
++      channels: {
++        whatsapp: {
++          responsePrefix: "[WA] ",
++        },
++      },
++    };
++
++    const result = createReplyPrefixContext({
++      cfg,
++      agentId: "main",
++      channel: "whatsapp",
++      accountId: "default",
++    });
++
++    expect(result.responsePrefix).toBe("Michael ♾️");
++  });
++});
+-- 
+2.50.1 (Apple Git-155)
+

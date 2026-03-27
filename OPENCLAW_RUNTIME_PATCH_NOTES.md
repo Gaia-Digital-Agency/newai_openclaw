@@ -7,14 +7,17 @@ These are not source-level TypeScript changes. They are modifications to the ins
 Upstream package metadata points to:
 
 - Repository: [openclaw/openclaw](https://github.com/openclaw/openclaw)
-- Installed package version on `aserver`: `2026.3.23-2`
+- Previously installed package version on `aserver`: `2026.3.23-2`
 
 ## Live Runtime Target
 
 - Server: `aserver`
 - SSH: `ssh -i ~/.ssh/gda-ce01 azlan@136.110.15.130`
-- Installed bundle file:
-  `/home/azlan/.npm-global/lib/node_modules/openclaw/dist/channel.runtime-Cu2TxQlg.js`
+- Current installed package version:
+  `2026.3.26`
+- Current installed bundle files containing the ported behavior:
+  - `/home/azlan/.npm-global/lib/node_modules/openclaw/dist/channel.runtime-BIK8FKW6.js`
+  - `/home/azlan/.npm-global/lib/node_modules/openclaw/dist/channel-reply-pipeline-BlO2qGni.js`
 
 ## Active Behavior
 
@@ -45,27 +48,22 @@ Upstream package metadata points to:
 
 ## Live Patch Anchors
 
-Verified on `2026-03-27` in the installed bundle:
+Verified on `2026-03-27` in the installed `2026.3.26` bundle:
 
-- line `2208`
-  - forced agent reply prefixes
-- line `2209`
-  - response prefix resolution
-- line `2383`
-  - owner WhatsApp number normalization
-- line `2403`
-  - group skip when `Brian` is not mentioned
-- line `2408`
-  - owner DM detection
-- line `2416`
-  - direct-message skip when no allowed named agent is present
+- `channel.runtime-BIK8FKW6.js`
+  - line `2225`
+    - group skip when `Brian` is not mentioned
+  - line `2240`
+    - direct-message skip when no allowed named agent is present
+- `channel-reply-pipeline-BlO2qGni.js`
+  - line `57`
+    - identity-based WhatsApp prefix `${identityName} ♾️`
 
-Relevant grep markers from the live file:
+Relevant grep markers from the live files:
 
-- `forcedAgentPrefix`
-- `ownerE164`
 - `Skipping WhatsApp group message without Brian mention`
 - `Skipping WhatsApp direct message without allowed named agent`
+- `♾️`
 
 ## Bundle Backups
 
@@ -93,16 +91,19 @@ Additional behavior notes:
 
 ## Durable Follow-Up
 
-To make this durable beyond the installed bundle:
+This is now ported into upstream source and deployed, but there are still two follow-ups:
 
-1. Locate the actual OpenClaw source repository used to build the installed package.
-2. Port the DM/group routing logic into source.
-3. Port the forced agent-prefix logic into source.
-4. Rebuild and reinstall OpenClaw on `aserver`.
-5. Replace this note with source commit references once available.
+1. Upstream source branch:
+   - local repo: `/Users/rogerwoolie/Documents/gaiada_projects/newai_openclaw/openclaw_upstream`
+   - branch: `codex/whatsapp-routing-source-port`
+   - commit: `1dbaaa9240`
+2. Packaging gap:
+   - `aserver` logs warn that `dist/control-ui/index.html` is missing in the deployed package.
+   - gateway and WhatsApp routing are healthy, but the Control UI asset packaging should be fixed in a future rebuild path.
 
 ## Tracked Patch Artifact
 
-This repo also tracks the extracted live bundle diff for the installed package version:
+This repo tracks both the original live-bundle patch and the clean upstream source patch:
 
 - [openclaw-2026.3.23-2-whatsapp-routing.patch](/Users/rogerwoolie/Documents/gaiada_projects/newai_openclaw/patches/openclaw-2026.3.23-2-whatsapp-routing.patch)
+- [openclaw-upstream-1dbaaa9240-whatsapp-routing.patch](/Users/rogerwoolie/Documents/gaiada_projects/newai_openclaw/patches/openclaw-upstream-1dbaaa9240-whatsapp-routing.patch)

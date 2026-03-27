@@ -4,6 +4,8 @@
 # Large local artifacts
 palaubud/
 poster.HEIC
+openclaw_upstream/
+openclaw-*.tgz
 
 # OpenClaw runtime and sensitive state
 agents/
