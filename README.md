@@ -46,6 +46,13 @@ Use these short names consistently in notes and chat:
 - `pserver` = production server
 - `hserver` = Hostinger server
 
+### Secret Handling
+
+- Do not commit live API keys, tokens, passwords, or private credentials into tracked repo files
+- Keep runtime secrets in server-side environment or service configuration, not in Git
+- When documenting operational flows, record which credential type is required, but not the secret value unless explicitly needed and handled outside tracked files
+- Before commit or push, search staged changes for secrets and remove them
+
 ## Server Runbook
 
 ### `aserver`

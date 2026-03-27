@@ -116,7 +116,7 @@ Do not make up facts that are not visible or strongly implied.
 - `event_time` must be in 15-minute increments.
 - `duration_minutes` must be in 15-minute increments.
 - `location`, `event_type`, and `entrance_type` may be sent as names or numeric IDs.
-- The API creates the event under `creator@zenbali.org` and publishes it immediately.
+- The API creates the event under `creator@zenbali.site` and publishes it immediately.
 - If only the image file is available, upload it first and use the returned `image_url`.
 - If no public image URL can be obtained, say so clearly.
 

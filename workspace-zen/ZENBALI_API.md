@@ -51,7 +51,7 @@ Use these defaults when poster extraction and safe inference are exhausted:
 - `event_time` must be in 15-minute increments.
 - `duration_minutes` must be in 15-minute increments.
 - `location`, `event_type`, and `entrance_type` can be sent as names or numeric IDs.
-- The API creates the event under `creator@zenbali.org` and publishes it immediately.
+- The API creates the event under `creator@zenbali.site` and publishes it immediately.
 - If multiple dates appear, send the first date as `event_date` and put the remaining dates into `event_description`.
 - If links or social media references are visible on the poster, include them in `event_description`.
 - Build `event_description` from useful poster information not already captured by the structured fields.
