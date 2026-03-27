@@ -4,6 +4,11 @@ This file tracks live runtime patches applied on `aserver` for the WhatsApp/Open
 
 These are not source-level TypeScript changes. They are modifications to the installed OpenClaw bundle and must be re-applied or ported if OpenClaw is upgraded or reinstalled.
 
+Upstream package metadata points to:
+
+- Repository: [openclaw/openclaw](https://github.com/openclaw/openclaw)
+- Installed package version on `aserver`: `2026.3.23-2`
+
 ## Live Runtime Target
 
 - Server: `aserver`
@@ -95,3 +100,9 @@ To make this durable beyond the installed bundle:
 3. Port the forced agent-prefix logic into source.
 4. Rebuild and reinstall OpenClaw on `aserver`.
 5. Replace this note with source commit references once available.
+
+## Tracked Patch Artifact
+
+This repo also tracks the extracted live bundle diff for the installed package version:
+
+- [openclaw-2026.3.23-2-whatsapp-routing.patch](/Users/rogerwoolie/Documents/gaiada_projects/newai_openclaw/patches/openclaw-2026.3.23-2-whatsapp-routing.patch)

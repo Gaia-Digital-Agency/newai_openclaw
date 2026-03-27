@@ -1,0 +1,70 @@
+--- /home/azlan/.npm-global/lib/node_modules/openclaw/dist/channel.runtime-Cu2TxQlg.js.pre-group-brian-patch.bak	2026-03-25 10:40:40.731663319 +0000
++++ /home/azlan/.npm-global/lib/node_modules/openclaw/dist/channel.runtime-Cu2TxQlg.js	2026-03-27 04:52:03.599007051 +0000
+@@ -2205,7 +2205,8 @@
+ 		accountId: params.route.accountId
+ 	});
+ 	const isSelfChat = params.msg.chatType !== "group" && Boolean(params.msg.selfE164) && normalizeE164(params.msg.from) === normalizeE164(params.msg.selfE164 ?? "");
+-	const responsePrefix = replyPipeline.responsePrefix ?? (configuredResponsePrefix === void 0 && isSelfChat ? resolveIdentityNamePrefix(params.cfg, params.route.agentId) : void 0);
++	const forcedAgentPrefix = params.route.agentId === "main" ? "Michael ♾️" : params.route.agentId === "bsc" ? "Brian ♾️" : params.route.agentId === "zen" ? "Zack ♾️" : void 0;
++	const responsePrefix = forcedAgentPrefix ?? replyPipeline.responsePrefix ?? (configuredResponsePrefix === void 0 && isSelfChat ? resolveIdentityNamePrefix(params.cfg, params.route.agentId) : void 0);
+ 	const inboundHistory = params.msg.chatType === "group" ? (params.groupHistory ?? params.groupHistories.get(params.groupHistoryKey) ?? []).map((entry) => ({
+ 		sender: entry.sender,
+ 		body: entry.body,
+@@ -2368,8 +2369,9 @@
+ 	return async (msg) => {
+ 		const conversationId = msg.conversationId ?? msg.from;
+ 		const peerId = resolvePeerId(msg);
+-		const route = resolveAgentRoute({
+-			cfg: loadConfig(),
++		const cfg = loadConfig();
++		let route = resolveAgentRoute({
++			cfg,
+ 			channel: "whatsapp",
+ 			accountId: msg.accountId,
+ 			peer: {
+@@ -2377,6 +2379,45 @@
+ 				id: peerId
+ 			}
+ 		});
++		const mentionTargets = resolveMentionTargets(msg, params.account.authDir);
++		const ownerE164 = normalizeE164("+628176917122");
++		const senderE164 = normalizeE164(msg.senderE164 ?? msg.from ?? "");
++		const wasMentionedForAgent = (agentId) => isBotMentionedFromTargets(msg, buildMentionConfig(cfg, agentId), mentionTargets);
++		const overrideRouteForAgent = (agentId) => {
++			const routeKeys = buildBroadcastRouteKeys({
++				cfg,
++				msg,
++				route,
++				peerId,
++				agentId
++			});
++			route = {
++				...route,
++				agentId,
++				...routeKeys
++			};
++		};
++		if (msg.chatType === "group") {
++			const brianAgentId = "bsc";
++			if (!wasMentionedForAgent(brianAgentId)) {
++				logVerbose(`Skipping WhatsApp group message without Brian mention in ${conversationId}`);
++				return;
++			}
++			overrideRouteForAgent(brianAgentId);
++		} else {
++			const isOwnerDm = Boolean(senderE164 && ownerE164 && senderE164 === ownerE164);
++			let targetAgentId = null;
++			if (isOwnerDm) {
++				if (wasMentionedForAgent("main")) targetAgentId = "main";
++				else if (wasMentionedForAgent("bsc")) targetAgentId = "bsc";
++				else if (wasMentionedForAgent("zen")) targetAgentId = "zen";
++			} else if (wasMentionedForAgent("main")) targetAgentId = "main";
++			if (!targetAgentId) {
++				logVerbose(`Skipping WhatsApp direct message without allowed named agent from ${senderE164 ?? msg.from}`);
++				return;
++			}
++			if (targetAgentId !== route.agentId) overrideRouteForAgent(targetAgentId);
++		}
+ 		const groupHistoryKey = msg.chatType === "group" ? buildGroupHistoryKey({
+ 			channel: "whatsapp",
+ 			accountId: route.accountId,
